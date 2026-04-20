@@ -25,7 +25,7 @@ FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 os.makedirs(DOCS_DIR, exist_ok=True)
 
 # Read PORT from environment — Railway sets this automatically
-PORT = int(os.getenv("PORT", "8080"))
+PORT = int(os.getenv("PORT", "8000"))
 
 app = FastAPI(
     title="NyayaVoice API",
