@@ -1,7 +1,7 @@
 name: nyaya-voice
 description: Voice-first multilingual legal aid assistant for underserved Indian communities
 
-start: bash start.sh
+start: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1 --log-level info
 
 build:
   - pip install -r requirements.txt
