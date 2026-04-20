@@ -266,6 +266,6 @@ def _get_greeting(lang: str) -> str:
 if __name__ == "__main__":
     import uvicorn
     # Railway injects PORT automatically — must read from env, never hardcode
-    port = int(os.environ.get("PORT", "8000"))
+    port = int(os.environ.get("PORT", "8080"))
     logger.info(f"Starting server on 0.0.0.0:{port}")
     uvicorn.run("main:app", host="0.0.0.0", port=port, workers=1, log_level="info")
