@@ -1,0 +1,12 @@
+name: nyaya-voice
+description: Voice-first multilingual legal aid assistant for underserved Indian communities
+
+start: bash start.sh
+
+build:
+  - pip install -r requirements.txt
+
+env:
+  PORT: "8080"
+  PYTHONPATH: "."
+  QDRANT_URL: ":memory:"

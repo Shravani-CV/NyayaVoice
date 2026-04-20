@@ -1,0 +1,19 @@
+Health check requested
+INFO:     127.0.0.1:52692 - "GET /health HTTP/1.1" 200 OK
+Frontend served
+Frontend requested
+INFO:     127.0.0.1:61592 - "GET / HTTP/1.1" 200 OK
+Frontend served
+Frontend requested
+INFO:     127.0.0.1:65032 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65032 - "GET /static/styles.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61140 - "GET /static/i18n.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:60417 - "GET /static/app.js HTTP/1.1" 200 OK
+Config requested
+INFO:     127.0.0.1:61140 - "GET /api/config HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61140 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:49666 - "POST /query HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:50356 - "POST /query HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:55331 - "POST /query HTTP/1.1" 404 Not Found
+Health check requested
+INFO:     127.0.0.1:64386 - "GET /health HTTP/1.1" 200 OK
