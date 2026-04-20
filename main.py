@@ -268,4 +268,5 @@ def _get_greeting(lang: str) -> str:
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=PORT, workers=1, log_level="info")
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("main:app", host="0.0.0.0", port=port, workers=1, log_level="info")
