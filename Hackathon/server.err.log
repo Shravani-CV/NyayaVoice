@@ -1,13 +1,0 @@
-C:\Users\harsh\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.10_qbz5n2kfra8p0\LocalCache\local-packages\Python310\site-packages\requests\__init__.py:109: RequestsDependencyWarning: urllib3 (2.6.2) or chardet (7.4.3)/charset_normalizer (3.4.4) doesn't match a supported version!
-  warnings.warn(
-Fetching 5 files:   0%|          | 0/5 [00:00<?, ?it/s]Fetching 5 files: 100%|##########| 5/5 [00:00<?, ?it/s]
-INFO:     Started server process [13832]
-INFO:     Waiting for application startup.
-2026-04-14 11:28:36,775 - main - INFO - Starting NyayaVoice API...
-2026-04-14 11:28:36,776 - backend.services.qdrant - INFO - Created collection: legal_knowledge
-2026-04-14 11:28:36,776 - backend.services.qdrant - INFO - Created collection: user_memory
-2026-04-14 11:28:36,776 - main - INFO - Qdrant collections ready.
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
-2026-04-14 11:28:37,798 - main - INFO - Legal knowledge base is empty — seeding now...
-2026-04-14 11:28:38,142 - main - INFO - Seeded 18 legal knowledge entries.
