@@ -1,12 +1,11 @@
 name: nyaya-voice
 description: Voice-first multilingual legal aid assistant for underserved Indian communities
 
-start: sh -c "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --log-level info"
+start: python main.py
 
 build:
   - pip install -r requirements.txt
 
 env:
-  PORT: "8000"
   PYTHONPATH: "."
   QDRANT_URL: ":memory:"

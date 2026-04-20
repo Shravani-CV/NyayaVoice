@@ -24,9 +24,6 @@ DOCS_DIR = os.path.join(BASE_DIR, "generated_docs")
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 os.makedirs(DOCS_DIR, exist_ok=True)
 
-# Read PORT from environment — Railway sets this automatically
-PORT = int(os.getenv("PORT", "8000"))
-
 app = FastAPI(
     title="NyayaVoice API",
     description="Voice-first multilingual legal aid assistant — powered by Vapi + Qdrant",
@@ -268,5 +265,7 @@ def _get_greeting(lang: str) -> str:
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", "8000"))
+    # Railway injects PORT automatically — must read from env, never hardcode
+    port = int(os.environ.get("PORT", "8000"))
+    logger.info(f"Starting server on 0.0.0.0:{port}")
     uvicorn.run("main:app", host="0.0.0.0", port=port, workers=1, log_level="info")
