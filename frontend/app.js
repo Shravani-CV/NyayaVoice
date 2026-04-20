@@ -50,7 +50,7 @@
           addMessage(msg.transcript, true);
         } else if (msg.role === 'assistant') {
           showPage('chat');
-          addMessage(markdownToHtml(msg.transcript), false);
+          addMessage(markdownToHtml(msg.transcript), false, getLang());
         }
       }
       // Handle conversation-update events (Vapi SDK v2 emits these for assistant responses)
@@ -59,7 +59,7 @@
         const last = msgs[msgs.length - 1];
         if (last && last.role === 'assistant' && last.content) {
           showPage('chat');
-          addMessage(markdownToHtml(last.content), false);
+          addMessage(markdownToHtml(last.content), false, getLang());
         }
       }
     });
@@ -178,16 +178,97 @@
       .replace(/\n/g, '<br>');                             // line breaks
   }
 
+  /* ── HELPER: Strip HTML/markdown for TTS ───────────────── */
+  function stripForSpeech(text) {
+    return text
+      .replace(/\*\*(.+?)\*\*/g, '$1')      // remove **bold**
+      .replace(/\*(.+?)\*/g, '$1')           // remove *italic*
+      .replace(/<[^>]+>/g, ' ')              // remove HTML tags
+      .replace(/#+\s/g, '')                  // remove markdown headers
+      .replace(/\[(.+?)\]/g, '$1')           // remove [brackets]
+      .replace(/https?:\/\/\S+/g, '')        // remove URLs
+      .replace(/\s{2,}/g, ' ')              // collapse spaces
+      .trim();
+  }
+
+  /* ── TEXT-TO-SPEECH ENGINE ──────────────────────────────── */
+  let ttsEnabled = true;
+  let currentUtterance = null;
+
+  function speakResponse(text, lang) {
+    if (!ttsEnabled) return;
+    if (!window.speechSynthesis) return;
+
+    // Cancel any ongoing speech
+    window.speechSynthesis.cancel();
+
+    const clean = stripForSpeech(text);
+    if (!clean) return;
+
+    const utterance = new SpeechSynthesisUtterance(clean);
+
+    // Set language for TTS
+    const ttsLangMap = {
+      'hi': 'hi-IN', 'en': 'en-IN',
+      'ta': 'ta-IN', 'bn': 'bn-IN',
+      'mr': 'mr-IN', 'te': 'te-IN',
+      'gu': 'gu-IN', 'kn': 'kn-IN',
+      'pa': 'pa-IN', 'ur': 'ur-IN',
+    };
+    utterance.lang = ttsLangMap[lang || getLang()] || 'en-IN';
+    utterance.rate = 0.92;   // slightly slower for clarity
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+
+    // Pick best available voice for the language
+    const voices = window.speechSynthesis.getVoices();
+    const langCode = utterance.lang.split('-')[0];
+    const match = voices.find(v => v.lang.startsWith(langCode))
+      || voices.find(v => v.lang.startsWith('en'));
+    if (match) utterance.voice = match;
+
+    currentUtterance = utterance;
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function stopSpeech() {
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    currentUtterance = null;
+  }
+
+  // Voices load async in some browsers — preload them
+  if (window.speechSynthesis) {
+    window.speechSynthesis.getVoices();
+    window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
+  }
+
   /* ── CHAT ──────────────────────────────────────────────── */
-  function addMessage(text, isUser) {
+  function addMessage(text, isUser, lang) {
     const wrapper = document.createElement('div');
     wrapper.className = 'msg ' + (isUser ? 'msg-user' : 'msg-bot');
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
     bubble.innerHTML = text;
+
+    // Add a small speaker button on bot messages so user can replay
+    if (!isUser) {
+      const speakBtn = document.createElement('button');
+      speakBtn.className = 'tts-replay-btn';
+      speakBtn.title = 'Read aloud';
+      speakBtn.innerHTML = '🔊';
+      speakBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:0.85rem;opacity:0.6;margin-left:6px;padding:2px 4px;vertical-align:middle;';
+      speakBtn.addEventListener('click', () => speakResponse(text, lang || getLang()));
+      bubble.appendChild(speakBtn);
+    }
+
     wrapper.appendChild(bubble);
     chatMessages.appendChild(wrapper);
     chatMessages.scrollTop = chatMessages.scrollHeight;
+
+    // Auto-speak bot responses
+    if (!isUser) {
+      speakResponse(text, lang || getLang());
+    }
   }
 
   function addTypingIndicator() {
@@ -208,6 +289,8 @@
   }
 
   async function sendToBackend(userText) {
+    // Stop any ongoing speech when user sends a new message
+    stopSpeech();
     addTypingIndicator();
     try {
       const result = await apiCall('/api/query', {
@@ -231,7 +314,8 @@
           '<strong style="color:#ef4444;">⚠️ ' + (getLang() === 'hi' ? 'आपातकाल' : 'EMERGENCY') + '</strong></div>' +
           responseHtml;
       }
-      addMessage(responseHtml, false);
+      // Pass detected language so TTS uses the right voice
+      addMessage(responseHtml, false, result.language || getLang());
 
       messageCount++;
       localStorage.setItem('nyayavoice_msg_count', messageCount);
@@ -240,11 +324,10 @@
     } catch (err) {
       removeTypingIndicator();
       console.error('Backend query failed:', err);
-      // Show a visible error message in the chat instead of silent fallback
       const errMsg = getLang() === 'hi'
         ? '⚠️ सर्वर से जुड़ने में समस्या हुई। कृपया जाँचें कि बैकएंड चल रहा है।<br><br>आपातकाल: पुलिस <strong>100</strong> | महिला <strong>181</strong> | आपातकाल <strong>112</strong>'
         : '⚠️ Could not reach the server. Please check the backend is running.<br><br>Emergency: Police <strong>100</strong> | Women <strong>181</strong> | Emergency <strong>112</strong>';
-      addMessage(errMsg, false);
+      addMessage(errMsg, false, getLang());
     }
   }
 
@@ -383,6 +466,7 @@
       newMicBtn.classList.remove('listening');
       newMicStatus.textContent = t('vcReady');
       activeRecognition = null;
+      stopSpeech(); // stop any ongoing TTS before processing new input
       showPage('chat');
       addMessage(transcript, true);
       sendToBackend(transcript);
@@ -510,6 +594,7 @@
         chatInput.value = transcript;
         chatMicBtn.classList.remove('voice-active');
         chatRecognition = null;
+        stopSpeech(); // stop any ongoing TTS before processing new input
         // Show the transcript as user message and send to backend directly
         addMessage(transcript, true);
         chatInput.value = '';
@@ -1063,6 +1148,17 @@
   /* ── User ID display in settings ───────────────────────── */
   const userIdDisplay = document.getElementById('userIdDisplay');
   if (userIdDisplay) userIdDisplay.textContent = userId;
+
+  /* ── TTS TOGGLE BUTTON ─────────────────────────────────── */
+  const ttsToggleBtn = document.getElementById('ttsToggleBtn');
+  if (ttsToggleBtn) {
+    ttsToggleBtn.addEventListener('click', () => {
+      ttsEnabled = !ttsEnabled;
+      ttsToggleBtn.textContent = ttsEnabled ? '🔊' : '🔇';
+      ttsToggleBtn.title = ttsEnabled ? 'Voice response ON' : 'Voice response OFF';
+      if (!ttsEnabled) stopSpeech();
+    });
+  }
 
   /* ── INIT ──────────────────────────────────────────────── */
   initTheme();
