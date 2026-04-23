@@ -5,6 +5,7 @@ load_dotenv()
 
 VAPI_API_KEY = os.getenv("VAPI_API_KEY", "")
 VAPI_PUBLIC_KEY = os.getenv("VAPI_PUBLIC_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 QDRANT_URL = os.getenv("QDRANT_URL", ":memory:")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", None)
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")

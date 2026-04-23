@@ -12,6 +12,12 @@ from backend.routes.document import router as document_router
 from backend.routes.memory import router as memory_router
 from backend.services.qdrant import ensure_collections, seed_legal_document
 from backend.config import VAPI_PUBLIC_KEY, VAPI_API_KEY
+from backend.services.gemini import (
+    get_vapi_system_prompt,
+    gemini_generate,
+    _detect_intent_from_message,
+    GEMINI_AVAILABLE,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -87,8 +93,12 @@ async def _auto_seed_if_empty():
 
 @app.get("/health")
 async def health():
-    print("Health check requested")
-    return {"status": "ok", "service": "NyayaVoice API"}
+    from backend.services.gemini import GEMINI_AVAILABLE
+    return {
+        "status": "ok",
+        "service": "NyayaVoice API",
+        "gemini": "enabled" if GEMINI_AVAILABLE else "fallback mode",
+    }
 
 
 @app.get("/api/config")
@@ -103,11 +113,16 @@ async def get_config():
 @app.post("/vapi-webhook")
 async def vapi_webhook(request: Request):
     """
-    Vapi webhook — handles voice call events.
-    Vapi runs the LLM on its own; we provide RAG context + document generation.
+    Vapi webhook — Gemini-powered voice call handler.
+
+    Flow:
+      assistant-request → Gemini system prompt → Vapi speaks greeting
+      function-call (query_legal) → Qdrant search → Gemini formats response → Vapi speaks
+      function-call (generate_document) → Gemini drafts document → PDF generated
+      end-of-call-report → conversation stored in Qdrant memory
     """
-    logger.info("Vapi webhook called")
     from backend.services.qdrant import search_legal_knowledge, store_conversation
+    from backend.services.llm import generate_response
 
     try:
         payload = await request.json()
@@ -116,62 +131,70 @@ async def vapi_webhook(request: Request):
 
     message = payload.get("message", {})
     msg_type = message.get("type", "")
-    logger.info(f"Vapi webhook received: type={msg_type}")
+    logger.info(f"Vapi webhook: type={msg_type}")
 
-    # 1. Assistant request — return assistant config
+    # ── 1. Assistant request — Gemini-powered system prompt ──────────────────
     if msg_type == "assistant-request":
         call = message.get("call", {})
         metadata = call.get("metadata", {})
         language = metadata.get("language", "en")
 
-        lang_names = {
-            "hi": "Hindi", "en": "English", "ta": "Tamil",
-            "bn": "Bengali", "mr": "Marathi", "te": "Telugu",
-            "gu": "Gujarati", "kn": "Kannada", "pa": "Punjabi", "ur": "Urdu",
-        }
-        lang_name = lang_names.get(language, "English")
+        # Use Gemini-generated system prompt
+        system_prompt = get_vapi_system_prompt(language)
 
         return JSONResponse({
             "assistant": {
                 "firstMessage": _get_greeting(language),
                 "model": {
                     "provider": "openai",
-                    "model": "gpt-4o",
-                    "systemPrompt": (
-                        f"You are NyayaVoice, a kind legal aid assistant for people in India. "
-                        f"Always respond in {lang_name}. Use simple everyday language. "
-                        f"Be empathetic. If the user is in danger, immediately give emergency numbers: "
-                        f"Police 100, Women Helpline 181, Emergency 112. "
-                        f"Ask one question at a time. Help users understand their rights and file complaints. "
-                        f"When you have enough details, tell the user you will generate a document for them."
-                    ),
+                    "model": "gpt-4o-mini",
+                    "systemPrompt": system_prompt,
                     "functions": [
                         {
                             "name": "query_legal",
-                            "description": "Query the legal knowledge base for relevant legal information.",
+                            "description": (
+                                "Search the legal knowledge base and get Gemini-powered advice "
+                                "for the user's legal problem."
+                            ),
                             "parameters": {
                                 "type": "object",
                                 "properties": {
-                                    "text": {"type": "string", "description": "User's legal question"},
+                                    "text": {
+                                        "type": "string",
+                                        "description": "User's legal question or problem description",
+                                    },
+                                    "user_id": {
+                                        "type": "string",
+                                        "description": "User identifier for memory retrieval",
+                                    },
                                 },
                                 "required": ["text"],
                             },
                         },
                         {
                             "name": "generate_document",
-                            "description": "Generate a legal document (FIR, complaint) from collected details.",
+                            "description": "Generate a legal document (FIR, complaint letter) using Gemini AI.",
                             "parameters": {
                                 "type": "object",
                                 "properties": {
-                                    "doc_type": {"type": "string"},
-                                    "details": {"type": "object"},
+                                    "doc_type": {
+                                        "type": "string",
+                                        "description": "Type of document: FIR, Domestic Violence Complaint, Labour Complaint, etc.",
+                                    },
+                                    "details": {
+                                        "type": "object",
+                                        "description": "Document details: incident_description, date_time, location, suspect_description, witness",
+                                    },
                                 },
                                 "required": ["doc_type", "details"],
                             },
                         },
                     ],
                 },
-                "voice": {"provider": "playht", "voiceId": "jennifer"},
+                "voice": {
+                    "provider": "playht",
+                    "voiceId": "jennifer",
+                },
                 "transcriber": {
                     "provider": "deepgram",
                     "model": "nova-2",
@@ -180,7 +203,7 @@ async def vapi_webhook(request: Request):
             }
         })
 
-    # 2. Function call — search Qdrant or generate document
+    # ── 2. Function call — Gemini + Qdrant RAG ───────────────────────────────
     if msg_type == "function-call":
         fn = message.get("functionCall", {})
         fn_name = fn.get("name", "")
@@ -188,17 +211,20 @@ async def vapi_webhook(request: Request):
 
         if fn_name == "query_legal":
             text = params.get("text", "")
+            user_id = params.get("user_id", "anonymous")
+            language = params.get("language", "en")
+
             if not text:
                 return JSONResponse({"result": "Please tell me your problem."})
 
-            results = search_legal_knowledge(text, top_k=4)
-            if results:
-                context = "\n\n".join(
-                    f"[{r['category'].replace('_',' ').title()}]: {r['content']}"
-                    for r in results if r["score"] > 0.2
-                )
-                return JSONResponse({"result": context or "No specific information found."})
-            return JSONResponse({"result": "No specific legal information found for this query."})
+            # Use full Gemini + Qdrant pipeline
+            result = generate_response(
+                user_id=user_id,
+                user_message=text,
+                conversation=[],
+                language_code=language,
+            )
+            return JSONResponse({"result": result["response"]})
 
         if fn_name == "generate_document":
             from backend.services.llm import generate_document_content
@@ -209,16 +235,25 @@ async def vapi_webhook(request: Request):
             doc_type = params.get("doc_type", "Complaint Letter")
             details = params.get("details", {})
 
+            # Gemini generates the document content
             content = generate_document_content(doc_type, details)
-            filepath = generate_pdf(user_id=user_id, doc_type=doc_type, content=content, details=details)
+            filepath = generate_pdf(
+                user_id=user_id,
+                doc_type=doc_type,
+                content=content,
+                details=details,
+            )
             filename = os.path.basename(filepath)
             doc_url = f"{BACKEND_URL}/docs/{filename}"
 
             return JSONResponse({
-                "result": f"Your {doc_type} has been generated. Download it here: {doc_url}"
+                "result": (
+                    f"Your {doc_type} has been generated using Gemini AI. "
+                    f"Download it here: {doc_url}"
+                )
             })
 
-    # 3. End of call — store conversation in Qdrant
+    # ── 3. End of call — store in Qdrant memory ──────────────────────────────
     if msg_type == "end-of-call-report":
         artifact = message.get("artifact", {})
         messages_list = artifact.get("messages", [])
@@ -232,12 +267,15 @@ async def vapi_webhook(request: Request):
                 for m in messages_list
                 if m.get("role") in ("user", "assistant")
             ]
-            store_conversation(user_id=user_id, conversation=conversation, case_type="voice_call")
-            logger.info(f"Stored end-of-call conversation for user {user_id}")
+            store_conversation(
+                user_id=user_id,
+                conversation=conversation,
+                case_type="voice_call",
+            )
+            logger.info(f"Stored voice call conversation for user {user_id}")
 
         return JSONResponse({"status": "stored"})
 
-    print("Vapi webhook processed")
     return JSONResponse({"status": "received"})
 
 
