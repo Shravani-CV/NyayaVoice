@@ -30,12 +30,26 @@ DOCS_DIR = os.path.join(BASE_DIR, "generated_docs")
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 os.makedirs(DOCS_DIR, exist_ok=True)
 
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ── Startup ──────────────────────────────────────────────
+    logger.info("Starting NyayaVoice API...")
+    ensure_collections()
+    logger.info("Qdrant collections ready.")
+    asyncio.create_task(_auto_seed_if_empty())
+    yield
+    # ── Shutdown ─────────────────────────────────────────────
+    logger.info("NyayaVoice shutting down.")
+
 app = FastAPI(
     title="NyayaVoice API",
-    description="Voice-first multilingual legal aid assistant — powered by Vapi + Qdrant",
-    version="2.0.0",
+    description="Voice-first multilingual legal aid assistant — powered by Gemini + Vapi + Qdrant",
+    version="3.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -56,13 +70,6 @@ app.include_router(document_router, prefix="/api", tags=["Document"])
 app.include_router(memory_router, prefix="/api", tags=["Memory"])
 
 
-@app.on_event("startup")
-async def startup():
-    logger.info("Starting NyayaVoice API...")
-    ensure_collections()
-    logger.info("Qdrant collections ready.")
-    # Run seeding in background to avoid blocking startup
-    asyncio.create_task(_auto_seed_if_empty())
 
 
 async def _auto_seed_if_empty():
