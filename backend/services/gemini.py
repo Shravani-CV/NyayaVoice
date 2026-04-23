@@ -21,7 +21,23 @@ from typing import Dict, List, Any, Optional
 
 import google.generativeai as genai
 
-from backend.config import EMERGENCY_KEYWORDS, SUPPORTED_LANGUAGES
+import os
+import logging
+import re
+from typing import Dict, List, Any, Optional
+
+import google.generativeai as genai
+
+from backend.config import SUPPORTED_LANGUAGES
+
+logger = logging.getLogger(__name__)
+
+# ── Tightly scoped emergency keywords — only real physical danger ────────────
+EMERGENCY_KEYWORDS = [
+    "hitting me", "beating me", "i am in danger", "someone is hurting",
+    "please save me", "bachao", "maaro", "maar raha hai", "maar rahi hai",
+    "jaan ka khatra", "meri jaan", "attack kar raha", "assault",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -59,9 +75,14 @@ LANG_NAMES = {
     "ur": "Urdu",
 }
 
-# ── Emergency detection (fast, no API call needed) ───────────────────────────
+# ── Emergency detection — only real physical danger ─────────────────────────
 def is_emergency(text: str) -> bool:
+    """
+    Only trigger emergency for genuine physical danger.
+    Requires a strong signal — not just words like 'help' or 'danger'.
+    """
     lower = text.lower()
+    # Must match a specific emergency phrase
     return any(kw in lower for kw in EMERGENCY_KEYWORDS)
 
 
@@ -82,58 +103,65 @@ def gemini_generate(
     user_id: str,
 ) -> Dict[str, Any]:
     """
-    Main Gemini call — detects intent and generates a response.
-    Returns dict with: response, intent, language, urgency, follow_up
+    Main Gemini call — context-aware, handles follow-ups intelligently.
     """
     lang = detect_language(user_message, fallback=language_code)
     lang_name = LANG_NAMES.get(lang, "English")
 
-    # Fast emergency path — no API call needed
     if is_emergency(user_message):
         return _emergency_response(lang)
 
     if not GEMINI_AVAILABLE:
         return _fallback_response(user_message, lang, legal_context)
 
-    # Build conversation context string
+    # Build conversation history string for context
     history_str = ""
     if conversation_history:
-        recent = conversation_history[-6:]
+        recent = [m for m in conversation_history if m.get("role") != "system"][-8:]
         history_str = "\n".join(
-            f"{m['role'].upper()}: {m['text']}" for m in recent
+            f"{m['role'].upper()}: {m.get('text', '')}" for m in recent
         )
 
-    # Build the prompt
-    prompt = f"""You are NyayaVoice, a compassionate legal aid assistant for people in India.
-Your users are often from rural areas, low-literacy backgrounds, or are migrant workers.
-Always respond in {lang_name}. Use very simple, everyday language. Be warm and empathetic.
-Keep your response concise — 3 to 5 sentences maximum for voice delivery.
+    # Detect if this is a follow-up question
+    is_followup = bool(history_str)
+    intent = _detect_intent_from_message(user_message)
 
-LEGAL KNOWLEDGE BASE (use this to answer):
-{legal_context if legal_context else "No specific legal data found. Use your general knowledge of Indian law."}
+    prompt = f"""You are NyayaVoice, an expert legal aid assistant for people in India.
+You have deep knowledge of Indian law — IPC, CrPC, DV Act, POSH Act, IT Act, Consumer Protection Act, RTI Act, and more.
+Your users may be from rural areas, low-literacy backgrounds, or in distress. Be warm, clear, and empathetic.
+Always respond in {lang_name} only.
 
-CONVERSATION HISTORY:
-{history_str if history_str else "This is the start of the conversation."}
+LEGAL KNOWLEDGE BASE:
+{legal_context if legal_context else "Use your knowledge of Indian law."}
 
-USER'S MESSAGE: {user_message}
+CONVERSATION SO FAR:
+{history_str if history_str else "This is the first message."}
 
-INSTRUCTIONS:
-1. Identify what legal problem the user has (theft, domestic violence, wage theft, harassment, land dispute, cyber crime, consumer rights, FIR process, legal aid, child rights, or general).
-2. Give clear, actionable steps the user can take RIGHT NOW.
-3. Mention the relevant Indian law section (IPC, CrPC, DV Act, etc.) briefly.
-4. If urgent, give emergency numbers: Police 100, Women Helpline 181, Emergency 112.
-5. End with one helpful next step (e.g., "Would you like me to help draft an FIR?").
-6. Respond ONLY in {lang_name}. Do NOT mix languages.
-7. Do NOT use markdown formatting — plain text only (this will be spoken aloud).
+USER'S CURRENT MESSAGE: {user_message}
 
-Respond now:"""
+TASK:
+{"This is a FOLLOW-UP question. Use the conversation history above to understand the full context. Answer specifically what the user is asking now." if is_followup else "This is a NEW query. Understand the full situation and give comprehensive guidance."}
+
+RESPONSE RULES:
+1. Read the full conversation history carefully before answering.
+2. If the user asks to "draft FIR", "help with FIR", or "file a complaint" — give them the exact steps to file it, NOT emergency numbers.
+3. If the user asks "what to do after FIR" or "next steps" — explain the post-FIR process clearly.
+4. Give numbered step-by-step guidance (Step 1, Step 2, etc.) — this is most helpful.
+5. Always mention the specific Indian law section that applies (e.g., IPC 379, CrPC 154).
+6. Include the correct police station or authority to approach (e.g., KR Puram Railway Police Station for railway incidents).
+7. If the user mentioned a specific location (like KR Puram, Bangalore), use it in your response.
+8. End with: "Would you like me to help you draft the FIR document?" if relevant.
+9. Use plain text — no markdown symbols like ** or ##.
+10. Be specific and practical — not generic.
+
+IMPORTANT: Do NOT give emergency helpline numbers unless the user is in immediate physical danger.
+Do NOT say "consult a lawyer" as the main advice — give direct actionable steps first.
+
+Respond now in {lang_name}:"""
 
     try:
         result = _model.generate_content(prompt)
         response_text = result.text.strip()
-
-        # Detect intent from the response context
-        intent = _detect_intent_from_message(user_message)
 
         return {
             "response": response_text,
@@ -213,7 +241,6 @@ def get_vapi_system_prompt(language: str) -> str:
 
 
 # ── Intent detection (fast regex, no API call) ───────────────────────────────
-import re
 
 INTENT_PATTERNS = {
     "theft_complaint": r"chori|theft|stolen|चोरी|phone|mobile|snatch|rob|loot|लूट|missing|lost.*phone|wallet|purse|pickpocket|गुम|खो गया",

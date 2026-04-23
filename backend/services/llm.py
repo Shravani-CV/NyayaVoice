@@ -19,6 +19,7 @@ from backend.services.gemini import (
     _emergency_response,
     _detect_intent_from_message,
     GEMINI_AVAILABLE,
+    EMERGENCY_KEYWORDS,
 )
 
 logger = logging.getLogger(__name__)
