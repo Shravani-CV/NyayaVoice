@@ -14,8 +14,6 @@ from backend.services.qdrant import ensure_collections, seed_legal_document
 from backend.config import VAPI_PUBLIC_KEY, VAPI_API_KEY
 from backend.services.gemini import (
     get_vapi_system_prompt,
-    gemini_generate,
-    _detect_intent_from_message,
     GEMINI_AVAILABLE,
 )
 
