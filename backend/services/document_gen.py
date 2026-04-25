@@ -11,7 +11,12 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
 
 logger = logging.getLogger(__name__)
 
-DOCS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "generated_docs")
+# Use absolute path so it works on both local and Railway (/app/generated_docs)
+_THIS_FILE = os.path.abspath(__file__)
+_SERVICES_DIR = os.path.dirname(_THIS_FILE)
+_BACKEND_DIR = os.path.dirname(_SERVICES_DIR)
+_APP_DIR = os.path.dirname(_BACKEND_DIR)
+DOCS_DIR = os.path.join(_APP_DIR, "generated_docs")
 os.makedirs(DOCS_DIR, exist_ok=True)
 
 
