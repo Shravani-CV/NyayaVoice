@@ -58,9 +58,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files
+# Mount static files — frontend only
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
-app.mount("/docs", StaticFiles(directory=DOCS_DIR), name="docs")
 
 # Include routers
 app.include_router(query_router, prefix="/api", tags=["Query"])
@@ -249,7 +248,7 @@ async def vapi_webhook(request: Request):
                 details=details,
             )
             filename = os.path.basename(filepath)
-            doc_url = f"{BACKEND_URL}/docs/{filename}"
+            doc_url = f"{BACKEND_URL}/api/docs/{filename}"
 
             return JSONResponse({
                 "result": (

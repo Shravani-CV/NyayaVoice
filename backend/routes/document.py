@@ -11,7 +11,10 @@ from backend.config import BACKEND_URL, VALID_DOC_TYPES
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-DOCS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "generated_docs")
+# Use absolute path — works correctly on both local and Railway
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DOCS_DIR = os.path.join(BASE_DIR, "generated_docs")
+os.makedirs(DOCS_DIR, exist_ok=True)
 
 
 class DocumentRequest(BaseModel):
@@ -51,7 +54,7 @@ async def generate_document(req: DocumentRequest):
     )
 
     filename = os.path.basename(filepath)
-    document_url = f"{BACKEND_URL}/docs/{filename}"
+    document_url = f"{BACKEND_URL}/api/docs/{filename}"
 
     return DocumentResponse(
         document_url=document_url,
