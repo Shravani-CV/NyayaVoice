@@ -151,7 +151,8 @@ def generate_pdf(user_id: str, doc_type: str, content: str, details: dict) -> st
         ))
 
         doc.build(story)
-        logger.info(f"PDF generated: {filepath}")
+        logger.info(f"PDF saved to: {filepath} (exists={os.path.exists(filepath)})")
+        logger.info(f"DOCS_DIR is: {DOCS_DIR}")
         return filepath
 
     except Exception as e:

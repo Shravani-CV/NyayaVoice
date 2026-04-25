@@ -69,30 +69,29 @@ async def serve_document(filename: str):
     # Sanitize to prevent path traversal
     filename = os.path.basename(filename)
 
-    # Try the standard DOCS_DIR first
-    filepath = os.path.join(DOCS_DIR, filename)
+    # Log all search paths for debugging
+    search_paths = [
+        os.path.join(DOCS_DIR, filename),
+        os.path.join("/app", "generated_docs", filename),
+        os.path.join("/app/backend/services/../../generated_docs", filename),
+    ]
+    search_paths = [os.path.normpath(p) for p in search_paths]
 
-    # Also try the document_gen.py DOCS_DIR (relative to services folder)
-    if not os.path.exists(filepath):
-        alt_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "services", "..", "..", "generated_docs", filename
-        )
-        alt_path = os.path.normpath(alt_path)
-        if os.path.exists(alt_path):
-            filepath = alt_path
+    logger.info(f"Looking for PDF: {filename}")
+    for path in search_paths:
+        logger.info(f"  Checking: {path} — exists={os.path.exists(path)}")
 
-    # Try /app/generated_docs (Railway container path)
-    if not os.path.exists(filepath):
-        railway_path = os.path.join("/app", "generated_docs", filename)
-        if os.path.exists(railway_path):
-            filepath = railway_path
+    filepath = next((p for p in search_paths if os.path.exists(p)), None)
 
-    if not os.path.exists(filepath):
-        logger.error(f"PDF not found: {filename}. Searched: {DOCS_DIR}, /app/generated_docs")
-        raise HTTPException(status_code=404, detail="Document not found")
+    if not filepath:
+        # List what IS in generated_docs for debugging
+        for d in [DOCS_DIR, "/app/generated_docs"]:
+            if os.path.isdir(d):
+                files = os.listdir(d)
+                logger.error(f"Files in {d}: {files}")
+        raise HTTPException(status_code=404, detail=f"Document not found: {filename}")
 
-    logger.info(f"Serving PDF: {filepath}")
+    logger.info(f"Serving PDF from: {filepath}")
     return FileResponse(
         filepath,
         media_type="application/pdf",
